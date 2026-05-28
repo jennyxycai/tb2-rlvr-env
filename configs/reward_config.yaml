@@ -1,0 +1,22 @@
+# GroupRewards combine spec: weights + per-component transforms + group demean.
+# Mirrors gypsum/configs/experiment/tts-rl/subconfigs/rewards/0309_default.yaml.
+
+advantages:
+  _class_: src.rewards.combine.GroupRewards
+  group_size: 16
+  add_group_demean: true
+  reward_names:
+    - tests
+    - llmaj
+  weights:
+    tests: 0.85
+    llmaj: 0.15
+  transforms:
+    tests:
+      - _name_: clamp
+        floor: 0.0
+        ceil: 1.0
+    llmaj:
+      - _name_: clamp
+        floor: 0.0
+        ceil: 1.0

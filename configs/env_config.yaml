@@ -1,0 +1,8 @@
+# Environment config: which tb2 tasks, which sandbox provider, base model, harness.
+
+task_ids: []           # TODO: list of tb2 task IDs (or a filter spec)
+sandbox_provider: ~    # TODO: e.g. modal
+base_model: ~          # TODO: e.g. qwen3-coder-7b-instruct
+harness: terminus
+step_budget: 50
+wall_clock_sec: 900
