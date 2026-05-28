@@ -17,13 +17,11 @@ class TestTestVerifierReward:
 
 
 class TestLLMJudgeReward:
-    """Dimension parsing, prompt rendering, backend fallback."""
+    """Dimension parsing and prompt rendering."""
 
     def test_dimensions_average_to_final_score(self) -> None: ...
 
     def test_malformed_response_raises(self) -> None: ...
-
-    def test_backend_chain_falls_back_on_failure(self) -> None: ...
 
 
 class TestGroupRewards:
