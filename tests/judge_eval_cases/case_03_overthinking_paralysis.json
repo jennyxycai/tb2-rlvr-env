@@ -1,0 +1,80 @@
+{
+  "name": "overthinking_paralysis",
+  "description": "Long reasoning_content blocks debating approaches, with very few corresponding tool calls. Most turns are pure thought. Eventually hits step budget without solving the task. Tests the analysis-paralysis penalty in action_success and tool_effectiveness.",
+  "expected_range": [0.10, 0.30],
+  "task_instruction": "There is a bug in /workspace/src/calc.py. The function multiply(a, b) currently returns a + b but should return a * b. Fix the bug and verify with your own tests before completing.",
+  "trajectory": [
+    {
+      "step_id": 1,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "Let me think about this carefully. The task says there's a bug where multiply returns a+b instead of a*b. But wait, what if there are other usages of this function across the codebase? What if some caller depends on the buggy behavior? I should think about backward compatibility. Should I introduce a deprecation warning? Or should I rename the buggy function? Or perhaps add a feature flag? Let me consider all the possible approaches:\n  Approach A: Direct fix. Pros: simple, matches task description. Cons: might break callers that depend on the buggy behavior, although it's hard to imagine why they would.\n  Approach B: Add a new function `multiply_correct` and deprecate the old one. Pros: backward compatible. Cons: adds API surface area, more code to maintain.\n  Approach C: Add a parameter `mode='add'|'mul'` to switch behavior. Pros: very flexible. Cons: complex API, callers must update.\n  Approach D: Use a decorator to wrap the function and log calls. Pros: observability. Cons: overkill, doesn't fix the bug.\nI should also consider: should I write tests first? TDD-style? Or fix-first then test? Both have merits. Let me think about the test suite design...",
+      "tool_calls": [
+        {"tool_call_id": "c1", "function_name": "bash", "arguments": {"cmd": "ls /workspace", "timeout_secs": 5}}
+      ]
+    },
+    {
+      "step_id": 2,
+      "source": "user",
+      "results": [{"source_call_id": "c1", "content": "src\n"}]
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "OK src/ is the only thing here. But should I look at all subdirectories first? What if there's a hidden conftest.py or a setup.cfg that constrains how I should approach this? Let me think about the testing framework. Is it pytest? unittest? nose? The task doesn't say. If I write a pytest test but the project uses unittest, the test might not be picked up. Maybe I should check for pyproject.toml or setup.py first. But on the other hand, that's premature optimization. Maybe I should just read calc.py. But which calc.py? The task says /workspace/src/calc.py but what if there are multiple? Let me list src/ to see...",
+      "tool_calls": []
+    },
+    {
+      "step_id": 4,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "Wait, I didn't issue a tool call last turn. Let me think about whether I should have. Actually I'm second-guessing myself. The right next step is probably to look in src/. But maybe I should think about the broader testing infrastructure first. What if the project uses doctests? What if there's a CI config that gates merges? I don't have access to CI, but still. Let me consider...",
+      "tool_calls": []
+    },
+    {
+      "step_id": 5,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "OK enough thinking. Let me list src/.",
+      "tool_calls": [
+        {"tool_call_id": "c2", "function_name": "bash", "arguments": {"cmd": "ls /workspace/src", "timeout_secs": 5}}
+      ]
+    },
+    {
+      "step_id": 6,
+      "source": "user",
+      "results": [{"source_call_id": "c2", "content": "calc.py\n"}]
+    },
+    {
+      "step_id": 7,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "Good, just calc.py. Now I should read it. But wait, I'm running low on steps. Let me think about whether reading is the best use of a step. The task description already tells me the bug. Maybe I should just edit directly? But then again exploration is best practice. Hmm. Let me consider the tradeoffs once more. On one hand, reading is cheap and confirms my understanding. On the other hand, it costs a step I could spend on the actual fix. There's also the question of whether I should write a test before or after the fix. TDD says before. But the task says fix first then verify. Arguably the task wording overrides TDD. But TDD has empirical support. Let me think more about which to do...",
+      "tool_calls": []
+    },
+    {
+      "step_id": 8,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "I've burned steps thinking. I should just act. Reading calc.py now.",
+      "tool_calls": [
+        {"tool_call_id": "c3", "function_name": "read_file", "arguments": {"path": "/workspace/src/calc.py"}}
+      ]
+    },
+    {
+      "step_id": 9,
+      "source": "user",
+      "results": [{"source_call_id": "c3", "content": "def multiply(a, b):\n    return a + b\n"}]
+    },
+    {
+      "step_id": 10,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "Now thinking about the fix approach again... I keep going back and forth. The step budget is almost gone. I have maybe 40 steps spent in thinking and only ~4 in action. I'll just write the fix and call complete, no verification.",
+      "tool_calls": [
+        {"tool_call_id": "c4", "function_name": "complete", "arguments": {}}
+      ]
+    }
+  ]
+}

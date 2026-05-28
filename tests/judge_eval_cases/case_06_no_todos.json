@@ -1,0 +1,73 @@
+{
+  "name": "no_todos",
+  "description": "Solid explore -> read -> edit -> verify cycle, but reasoning_content has no plan, no TODO list, and is never re-stated. Triggers the planning hard cap (no planning content anywhere -> max 0.40). Other dimensions should be solid.",
+  "expected_range": [0.30, 0.50],
+  "task_instruction": "There is a bug in /workspace/src/calc.py. The function multiply(a, b) currently returns a + b but should return a * b. Fix the bug and verify with your own tests before completing.",
+  "trajectory": [
+    {
+      "step_id": 1,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "",
+      "tool_calls": [
+        {"tool_call_id": "c1", "function_name": "bash", "arguments": {"cmd": "ls /workspace", "timeout_secs": 5}}
+      ]
+    },
+    {
+      "step_id": 2,
+      "source": "user",
+      "results": [{"source_call_id": "c1", "content": "src\n"}]
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "",
+      "tool_calls": [
+        {"tool_call_id": "c2", "function_name": "read_file", "arguments": {"path": "/workspace/src/calc.py"}}
+      ]
+    },
+    {
+      "step_id": 4,
+      "source": "user",
+      "results": [{"source_call_id": "c2", "content": "def multiply(a, b):\n    return a + b\n"}]
+    },
+    {
+      "step_id": 5,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "",
+      "tool_calls": [
+        {"tool_call_id": "c3", "function_name": "edit_file", "arguments": {"path": "/workspace/src/calc.py", "old_str": "    return a + b", "new_str": "    return a * b"}}
+      ]
+    },
+    {
+      "step_id": 6,
+      "source": "user",
+      "results": [{"source_call_id": "c3", "content": "edit applied: 1 occurrence replaced"}]
+    },
+    {
+      "step_id": 7,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "",
+      "tool_calls": [
+        {"tool_call_id": "c4", "function_name": "bash", "arguments": {"cmd": "cd /workspace && python -c 'from src.calc import multiply; print(multiply(3,4))'", "timeout_secs": 5}}
+      ]
+    },
+    {
+      "step_id": 8,
+      "source": "user",
+      "results": [{"source_call_id": "c4", "content": "12\n"}]
+    },
+    {
+      "step_id": 9,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "",
+      "tool_calls": [
+        {"tool_call_id": "c5", "function_name": "complete", "arguments": {}}
+      ]
+    }
+  ]
+}

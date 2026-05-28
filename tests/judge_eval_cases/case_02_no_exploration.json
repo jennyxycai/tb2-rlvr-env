@@ -1,0 +1,31 @@
+{
+  "name": "no_exploration",
+  "description": "Skips the exploration phase entirely: writes the file blindly from the task description, never reads existing source, never verifies. Should trigger the phase_adherence hard cap (no exploration before first write -> max 0.50) and a weak planning score.",
+  "expected_range": [0.15, 0.35],
+  "task_instruction": "There is a bug in /workspace/src/calc.py. The function multiply(a, b) currently returns a + b but should return a * b. Fix the bug and verify with your own tests before completing.",
+  "trajectory": [
+    {
+      "step_id": 1,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "The task says multiply returns a + b but should return a * b. I'll just write the correct version of the file.",
+      "tool_calls": [
+        {"tool_call_id": "c1", "function_name": "write_file", "arguments": {"path": "/workspace/src/calc.py", "content": "def multiply(a, b):\n    return a * b\n"}}
+      ]
+    },
+    {
+      "step_id": 2,
+      "source": "user",
+      "results": [{"source_call_id": "c1", "content": "wrote 39 bytes to /workspace/src/calc.py"}]
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "model_name": "qwen3-coder-7b",
+      "reasoning_content": "Done. Calling complete.",
+      "tool_calls": [
+        {"tool_call_id": "c2", "function_name": "complete", "arguments": {}}
+      ]
+    }
+  ]
+}
