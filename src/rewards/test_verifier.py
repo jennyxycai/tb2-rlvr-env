@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.rewards.utils import get_field
+
+if TYPE_CHECKING:
+    from src.env.dataset_resolver import TaskRef
 
 
 class TestVerifierReward:
@@ -15,10 +18,38 @@ class TestVerifierReward:
 
     Pulls per-test results written by Harbor's verifier and applies the per-task
     test weights (defaults to uniform 1/N if no weights configured).
+
+    Where weights come from:
+      - **terminal-bench-rl tasks** (all 331 in `Danau5tin/terminal-bench-rl`,
+        `dataset/latest_verified.csv`): every row has a `test_weights` column
+        holding a JSON string like
+        `{"test_db_starts": 0.20, "test_basic_query": 0.20, "test_concurrent_reads": 0.30, "test_concurrent_writes": 0.30}`
+        (one weight per test function in the row's `test_functions` column;
+        sums to 1.0 per task). `GitHubCSVSource.load()` in
+        `src/env/dataset_resolver.py` calls `json.loads()` on that string and
+        stores the result in `TaskRef.weights`.
+
+            resolver = DatasetResolver(env_config)
+            pool = resolver.resolve("rl") # -> list[TaskRef]
+            verifier = TestVerifierReward.from_task_refs(pool.tasks)
+
+      - **tb2 native tasks** (`harbor-framework/terminal-bench-2`): their
+        `task.toml` has metadata but no per-test weights. `TaskRef.weights`
+        stays None; this verifier falls back to uniform `1/N` per task.
+      - **OpenThoughts-Agent-v1-RL/SFT** (HuggingFace): no weight schema either.
+        Same uniform fallback.
     """
 
     def __init__(self, weights_by_task: dict[str, dict[str, float]] | None = None) -> None:
         self.weights_by_task = weights_by_task or {}
+
+    @classmethod
+    def from_task_refs(cls, tasks: list[TaskRef]) -> TestVerifierReward:
+        """Build a TestVerifierReward by harvesting `task.weights` from each
+        TaskRef in the resolved pool. Tasks with `weights is None` are simply
+        omitted from the dict; they fall through to uniform 1/N at runtime."""
+        weights_by_task = {t.task_id: t.weights for t in tasks if t.weights is not None}
+        return cls(weights_by_task=weights_by_task)
 
     def __call__(self, rollout: Any) -> float:
         results = self._load_verifier_output(rollout)

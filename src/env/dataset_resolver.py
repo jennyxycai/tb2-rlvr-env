@@ -4,8 +4,16 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+import requests
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,8 +51,11 @@ class DatasetSource(Protocol):
 
 
 class GitHubCSVSource:
-    """Reads a CSV from a pinned GitHub revision (e.g. terminal-bench-rl's latest_verified.csv).
-    Applies optional row-level filters (difficulty, etc.) before returning TaskRefs."""
+    """Reads a CSV from a pinned GitHub revision (e.g. terminal-bench-rl's
+    latest_verified.csv). Applies optional row-level filters and parses the
+    `test_weights` column (JSON string -> dict[str, float]) into TaskRef.weights."""
+
+    RAW_URL = "https://raw.githubusercontent.com/{repo}/{revision}/{path}"
 
     def __init__(
         self,
@@ -52,13 +63,68 @@ class GitHubCSVSource:
         path: str,
         revision: str,
         filter: dict[str, Any] | None = None,
-    ) -> None: ...
+    ) -> None:
+        self.repo = repo
+        self.path = path
+        self.revision = revision
+        self.filter = filter or {}
+        self.source_name = repo
 
-    def load(self) -> list[TaskRef]: ...
+    def load(self) -> list[TaskRef]:
+        rows = list(csv.DictReader(io.StringIO(self._fetch_csv())))
+        rows = self._apply_filter(rows)
+        tasks: list[TaskRef] = []
+        for row in rows:
+            task_id = (row.get("task_id") or "").strip()
+            if not task_id:
+                continue
+            tasks.append(
+                TaskRef(
+                    task_id=task_id,
+                    source_name=self.source_name,
+                    revision=self.revision,
+                    difficulty=(row.get("difficulty") or None),
+                    weights=self._parse_weights(row.get("test_weights")),
+                )
+            )
+        return tasks
 
-    def _fetch_csv(self) -> str: ...
+    def _fetch_csv(self) -> str:
+        url = self.RAW_URL.format(repo=self.repo, revision=self.revision, path=self.path)
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        return resp.text
 
-    def _apply_filter(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+    def _apply_filter(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Keep rows where every (column, allowed) pair matches.
+        `allowed` may be a single value or a list of values."""
+        if not self.filter:
+            return rows
+
+        def keep(row: dict[str, Any]) -> bool:
+            for col, allowed in self.filter.items():
+                allowed_set = {allowed} if isinstance(allowed, (str, int, float)) else set(allowed)
+                if row.get(col) not in allowed_set:
+                    return False
+            return True
+
+        return [r for r in rows if keep(r)]
+
+    @staticmethod
+    def _parse_weights(value: str | None) -> dict[str, float] | None:
+        """Parse the `test_weights` CSV column (a JSON string) into a {test: weight}
+        dict. Empty / unparseable values return None so the verifier falls back to
+        uniform 1/N weighting at runtime."""
+        if not value or not value.strip():
+            return None
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as e:
+            log.warning("test_weights JSON parse failed: %s; value=%r", e, value[:120])
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return {str(k): float(v) for k, v in parsed.items()}
 
 
 class HuggingFaceSource:
