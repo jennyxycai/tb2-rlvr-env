@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import harbor
 
@@ -70,16 +73,15 @@ class HarborRolloutInterface:
         return self._task_pools
 
     def rollout(self, task_id: str, policy: str | None = None) -> RolloutResult:
-        """Run one rollout: build TrialConfig -> harbor.Trial.run() -> dispatch
-        reward_fns -> RolloutResult."""
+        """Run one rollout: build TrialConfig -> Harbor Trial -> dispatch
+        reward_fns -> RolloutResult. Wraps Harbor's async API in asyncio.run so
+        callers (incl. the smoke test) stay sync."""
         config = self._build_trial_config(task_id, policy)
-        result = harbor.Trial(config).run()
+        result, task_instruction = asyncio.run(self._run_trial(config))
 
-        verifier_output = (
-            dict(result.verifier_result.rewards) if result.verifier_result else None
-        )
-        trajectory = self._extract_trajectory(result)
-        task_instruction = self._extract_task_instruction(result)
+        trial_dir = self._trial_dir_from_result(result)
+        trajectory = self._read_trajectory(trial_dir)
+        verifier_output = self._read_ctrf(trial_dir)
         terminated_by = self._extract_termination(result)
 
         partial = RolloutResult(
@@ -91,7 +93,11 @@ class HarborRolloutInterface:
             metadata={
                 "trial_id": str(result.id),
                 "trial_uri": result.trial_uri,
+                "trial_dir": str(trial_dir),
                 "verifier_output": verifier_output,
+                "verifier_aggregate": (
+                    dict(result.verifier_result.rewards) if result.verifier_result else None
+                ),
                 "exception": str(result.exception_info) if result.exception_info else None,
             },
         )
@@ -105,6 +111,18 @@ class HarborRolloutInterface:
                 rewards[name] = 0.0
         partial.rewards = rewards
         return partial
+
+    async def _run_trial(
+        self, config: harbor.TrialConfig
+    ) -> tuple[harbor.TrialResult, str]:
+        """Async glue: `Trial.create(config)` loads the task + picks the right
+        subclass (SingleStep vs MultiStep). We snapshot `trial.task.instruction`
+        before running because the TrialResult doesn't carry the Task object
+        back; reading the instruction afterward would require re-loading."""
+        trial = await harbor.Trial.create(config)
+        task_instruction = getattr(trial.task, "instruction", "") or ""
+        result = await trial.run()
+        return result, task_instruction
 
     def reset(self, task_id: str) -> None:
         """No-op: Harbor's Trial creates a fresh container per call so there's
@@ -134,16 +152,36 @@ class HarborRolloutInterface:
             trials_dir=self.trials_dir,
         )
 
-    def _extract_trajectory(self, result: harbor.TrialResult) -> list[dict[str, Any]]:
-        """TODO(stage-4-ext): convert Harbor's RolloutDetail (token-level) into
-        ATIF message-level steps the judge rubric expects. For now return an empty
-        list so reward fns that need trajectory (LLMJudgeReward) render '(empty
-        trajectory)' rather than crash. TestVerifierReward doesn't need this."""
-        return []
+    def _trial_dir_from_result(self, result: harbor.TrialResult) -> Path:
+        """Trial dirs are reported back as `file://` URIs; strip the scheme."""
+        parsed = urlparse(result.trial_uri)
+        return Path(parsed.path) if parsed.scheme == "file" else Path(result.trial_uri)
 
-    def _extract_task_instruction(self, result: harbor.TrialResult) -> str:
-        """TODO(stage-4-ext): pull from result or read /task/instruction.md."""
-        return ""
+    def _read_trajectory(self, trial_dir: Path) -> list[dict[str, Any]]:
+        """Read Harbor's ATIF-v1.7 trajectory dump from `agent/trajectory.json`.
+        Returns the `steps` array directly (already in the shape LLMJudgeReward's
+        trajectory formatter expects: step_id / source / tool_calls / observation.results)."""
+        path = trial_dir / "agent" / "trajectory.json"
+        if not path.exists():
+            log.warning("trajectory.json missing at %s; returning empty list", path)
+            return []
+        data = json.loads(path.read_text())
+        return data.get("steps") or []
+
+    def _read_ctrf(self, trial_dir: Path) -> dict[str, bool] | None:
+        """Read per-test pass/fail from `verifier/ctrf.json` (CTRF = Common Test
+        Report Format). Returns {test_name: passed_bool}, suitable as
+        `metadata.verifier_output` for TestVerifierReward.
+
+        Falls back to None if the file is missing (e.g., the verifier never ran
+        because the agent errored out)."""
+        path = trial_dir / "verifier" / "ctrf.json"
+        if not path.exists():
+            log.warning("ctrf.json missing at %s; verifier_output will be None", path)
+            return None
+        data = json.loads(path.read_text())
+        tests = (data.get("results") or {}).get("tests") or []
+        return {t["name"]: t.get("status") == "passed" for t in tests if "name" in t}
 
     def _extract_termination(self, result: harbor.TrialResult) -> str:
         """Best-effort termination cause string."""

@@ -63,10 +63,14 @@ class TestVerifierReward:
         """Return {test_name: passed}. Resolution order:
           1) rollout.verifier_output (direct field)
           2) rollout.metadata['verifier_output']
-          3) rollout.metadata['verifier_path'] (path to reward.json on disk)
+          3) rollout.metadata['verifier_path'] (path to a JSON dict on disk)
 
-        TODO(stage-4): align with Harbor's actual reward.json schema once
-        HarborRolloutInterface is wired and we know the real key names.
+        For live Harbor rollouts: HarborRolloutInterface._read_ctrf parses
+        `<trial_dir>/verifier/ctrf.json` (Common Test Report Format) into this
+        shape and puts it in metadata['verifier_output']. Harbor's own
+        `verifier_result.rewards` is a single-scalar aggregate (e.g. {"reward": 1.0})
+        and lives in metadata['verifier_aggregate'] for diagnostics; we prefer
+        the per-test detail for partial-credit weighting.
         """
         out = get_field(rollout, "verifier_output")
         if out is None:

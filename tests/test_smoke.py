@@ -35,7 +35,7 @@ def _docker_reachable() -> bool:
 # this file to swap tasks. tb2 has 89 task dirs (no `hello-world`); pick a
 # small-Dockerfile, short-timeout one once you've poked around the repo.
 #   list: https://github.com/harbor-framework/terminal-bench-2
-SMOKE_TASK_ID = "cancel-async-tasks"
+SMOKE_TASK_ID = "fix-git"   # only `easy` task in the small sample I surveyed
 SMOKE_MODEL = "claude-haiku-4-5"
 
 

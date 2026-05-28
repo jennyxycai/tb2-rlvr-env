@@ -28,17 +28,14 @@ datasets:
 task_ids_override: null
 
 sandbox_provider: docker    # one of: docker, modal, daytona, e2b, runloop, tensorlake, ...
-harness: terminus
+harness: terminus-2
 
-# Where Harbor pulls task definitions from at rollout time. Independent of
-# `datasets:` above (that block enumerates IDs; this block tells Harbor where to
-# fetch the actual Dockerfile / tests / task.toml for a given task_id).
+# Default Harbor task repo for rollout. Only works for tasks that already ship
+# as Harbor-shaped directories, which covers tb2's 89 tasks and the eval pool,
+# but NOT training tasks from `Danau5tin/terminal-bench-rl`.
 harbor_task_repo: https://github.com/harbor-framework/terminal-bench-2.git
 harbor_task_revision: null  # TODO: pin to a commit SHA before any real run
-
-# Where Trial outputs (logs, verifier results, agent traces) get written.
 trials_dir: trials
-
 base_model: qwen3-coder-7b-instruct
 
 # Per-rollout budgets (enforced by Terminus + sandbox provider).
