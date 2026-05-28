@@ -45,3 +45,19 @@ class OfflineEvalCaseRunner:
     def __init__(self, cases_dir: str, judge: Any) -> None: ...
 
     def run(self) -> list[dict[str, Any]]: ...
+
+
+class JudgeValidationCLI:
+    """Argparse + invocation glue around JudgeValidator. Registered as the
+    `tb2-validate-judge` console entry point in pyproject.toml."""
+
+    def __init__(self, argv: list[str] | None = None) -> None: ...
+
+    def parse_args(self) -> dict[str, object]: ...
+
+    @classmethod
+    def run(cls) -> int: ...
+
+
+if __name__ == "__main__":
+    raise SystemExit(JudgeValidationCLI.run())

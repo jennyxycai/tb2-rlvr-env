@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tb2-rlvr-env"
+version = "0.1.0"
+description = "RLVR environment for terminal-bench-2 built on the Harbor framework."
+requires-python = ">=3.12"
+dependencies = [
+    # Core framework (install from source; not on PyPI yet)
+    "harbor @ git+https://github.com/laude-institute/harbor.git",
+
+    # LLM-as-judge
+    "anthropic>=0.40",     # Claude SDK for the judge
+    "tenacity>=8.0",       # retry-with-backoff for judge calls
+
+    # Phase 0 validation
+    "scipy>=1.10",         # spearmanr
+
+    # Config + schemas
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "omegaconf>=2.3",      # mirrors gypsum-post-train's config pattern
+    "python-dotenv>=1.0",  # load .env files
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-mock>=3.10",   # mocking Harbor in unit tests
+]
+
+# Constrained-decoding route (vLLM grammar mode for valid JSON tool calls)
+inference = [
+    "vllm>=0.6",
+    "outlines>=0.1",
+]
+
+[project.scripts]
+tb2-validate-judge = "src.rewards.judge_validation:JudgeValidationCLI.run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

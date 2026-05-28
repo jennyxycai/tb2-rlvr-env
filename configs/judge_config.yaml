@@ -6,10 +6,10 @@ primary:
   max_retries: 3
 
 fallbacks:
-  - model: claude-opus-4
+  - model: claude-haiku-4-5
     temperature: 0.0
     max_retries: 3
-  - model: gemini-2.5-pro
+  - model: qwen-3-code-32b
     temperature: 0.0
     max_retries: 3
 
