@@ -1,16 +1,7 @@
-# LLM-as-judge backend chain + rubric pointer. Fallback chain handles rate limits.
+# LLM-as-judge backend + rubric pointer.
 
-primary:
-  model: claude-sonnet-4 # TODO: validate which models are good at scoring
+backend:
+  model: claude-sonnet-4-6   # TODO: validate which models are good at scoring
   temperature: 0.0
-  max_retries: 3
-
-fallbacks:
-  - model: claude-haiku-4-5
-    temperature: 0.0
-    max_retries: 3
-  - model: qwen-3-code-32b
-    temperature: 0.0
-    max_retries: 3
 
 rubric_path: src/prompts/judge_rubric.md

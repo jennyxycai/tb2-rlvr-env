@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class RewardTransform:
     """Base class for per-component scalar transforms (clamp, normalize, etc.)."""

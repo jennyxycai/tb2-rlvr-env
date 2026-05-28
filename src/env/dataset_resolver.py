@@ -14,8 +14,8 @@ class TaskRef:
     interface needs to fetch the task + everything the run record needs to trace it."""
 
     task_id: str
-    source_name: str        # e.g. 'Danau5tin/terminal-bench-rl', 'open-thoughts/OpenThoughts-Agent-v1-RL'
-    revision: str           # pinned commit SHA / HF revision hash
+    source_name: str  # e.g. 'Danau5tin/terminal-bench-rl', 'open-thoughts/OpenThoughts-Agent-v1-RL'
+    revision: str  # pinned commit SHA / HF revision hash
     difficulty: str | None  # 'easy' | 'medium' | 'hard' | 'extremely_hard' | None
     weights: dict[str, float] | None  # per-test weights if the dataset ships them
 
@@ -24,13 +24,13 @@ class TaskRef:
 class ResolvedTaskPool:
     """One of: training RL pool, SFT warmup pool, eval pool. Reproducibility unit."""
 
-    name: str               # 'rl' | 'sft_warmup' | 'eval'
+    name: str  # 'rl' | 'sft_warmup' | 'eval'
     tasks: list[TaskRef]
 
     def snapshot_to(self, path: str) -> None: ...
 
     @classmethod
-    def from_snapshot(cls, path: str) -> "ResolvedTaskPool": ...
+    def from_snapshot(cls, path: str) -> ResolvedTaskPool: ...
 
 
 class DatasetSource(Protocol):
@@ -91,7 +91,9 @@ class DatasetResolver:
 
     MUTABLE_REVS = {"main", "master", "HEAD", "latest"}
 
-    def __init__(self, env_config: dict[str, Any], allow_mutable_revisions: bool = False) -> None: ...
+    def __init__(
+        self, env_config: dict[str, Any], allow_mutable_revisions: bool = False
+    ) -> None: ...
 
     def resolve(self, pool_name: str) -> ResolvedTaskPool: ...
 
