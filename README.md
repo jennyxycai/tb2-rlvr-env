@@ -1,6 +1,7 @@
 # tb2-rlvr-env
 
-RLVR environment for [terminal-bench-2](https://github.com/harbor-framework/terminal-bench-2) built on the [Harbor](https://www.harborframework.com/) framework. The env wraps tb-format tasks, runs them via a Harbor-managed agent harness (Terminus), and computes a 85/15 reward (pytest-based test verification + LLM-as-judge on the trajectory). Intended to be plugged into an RL trainer (SkyRL, verifiers, etc.) via `HarborRolloutInterface`.
+RLVR environment for [terminal-bench-2](https://github.com/harbor-framework/terminal-bench-2) built on the [Harbor](https://www.harborframework.com/) framework. The env wraps tb-format tasks, runs them via Harbor's `terminus-2` harness, and computes an 85/15 reward (pytest-based test verification + LLM-as-judge on the trajectory). Intended to be plugged into an RL trainer (SkyRL, verifiers, etc.) via `HarborRolloutInterface`.
+
 
 ## Install
 
@@ -16,38 +17,52 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-This pulls Harbor from source (it's not on PyPI yet), plus our deps (anthropic, scipy, pyyaml, pydantic, omegaconf, python-dotenv).
+This pulls Harbor from source (not on PyPI yet), plus our deps (litellm, anthropic, scipy, pyyaml, pydantic, omegaconf, python-dotenv).
 
 ## Configure
 
-Copy `.env.example` to `.env` and fill in:
-
 ```bash
-cp .env.example .env
+cp .env.example .env  # then fill in
 ```
 
 Required:
 - `ANTHROPIC_API_KEY` — for the LLM-as-judge (Claude Sonnet)
-- `HARBOR_SANDBOX_PROVIDER` — one of `modal`, `daytona`, `e2b`, `runloop`, `tensorlake`
-- Provider-specific credentials (e.g., `MODAL_TOKEN_ID` + `MODAL_TOKEN_SECRET` for Modal)
+- A reachable Docker daemon if you're using `sandbox_provider: docker` (the default, set in [configs/env_config.yaml](configs/env_config.yaml)).
+
+
+## Common commands
+
+```bash
+pytest -m "not slow"          # fast unit tests (~2s)
+pytest -m slow                # judge fixtures (~12s, ~$0.30) + smoke (~2 min on Docker)
+ruff check src tests          # lint
+ruff format src tests         # format
+
+# Stage 5 (inert until JudgeValidator is implemented):
+tb2-validate-judge --config configs/judge_config.yaml
+```
 
 ## Smoke test
 
 ```bash
-pytest tests/test_smoke.py -v -m smoke
+pytest tests/test_smoke.py -v -m slow
 ```
 
-Runs one tb2 task end-to-end against the base model, computes the 85/15 reward, prints the result. ~$1-5 in API costs, 1-2 minutes wall-clock.
+Runs one tb2 task end-to-end on local Docker (default: `fix-git` with `claude-haiku-4-5`). Costs ~$0.05–0.50 and 1–2 min wall-clock. Override via env vars:
+
+```bash
+TB2_SMOKE_TASK=<task-name> TB2_SMOKE_MODEL=<model-id> pytest tests/test_smoke.py -v -m slow
+```
 
 ## Reward function
 
 Each rollout produces a reward in `[0, 1]`:
 
 - **0.85 × test verification**: pytest from the task's `tests/test.sh` runs against the agent's final container state after `complete()`. Per-test weights are applied if the task specifies them; otherwise uniform `1/N`.
-- **0.15 × LLM-as-judge**: Claude Sonnet 4 scores the trajectory on 4 dimensions (action output success, planning quality, phase adherence, tool effectiveness); the 4 are averaged.
+- **0.15 × LLM-as-judge**: Claude Sonnet 4.6 scores the trajectory on 4 dimensions (action output success, planning quality, phase adherence, tool effectiveness); the 4 are averaged.
 
-Combined via the `GroupRewards`: weighted sum, then group-demean across the 16 rollouts per prompt to produce the GRPO advantage.
+Combined via `GroupRewards`: weighted sum, then group-demean across the 16 rollouts per prompt to produce the GRPO advantage.
 
-## Notes on tb2 task filesystem
+## Where the trainer plugs in
 
-The agent's working directory inside the container is whatever the task's `environment/Dockerfile` sets as `WORKDIR` (varies per task; e.g., `bn-fit-modify` uses `/app/`). The task instruction is delivered to the agent in the initial user message of the chat template, not as a file in the container. Harbor mounts `/logs/verifier/`, `/logs/agent/`, `/solution/`, and `/tests/` at trial time per its spec; the trained agent sees only the WORKDIR (the others are not in Terminus's tool catalog).
+`src/env/rollout.py::HarborRolloutInterface` is the contract called by the RL trainer (SkyRL or `verifiers`). The trainer lives in a separate repo; this env plugs in by implementing that interface. On init it lazily resolves task pools via `DatasetResolver`; per-rollout it builds a `harbor.TrialConfig`, runs `Trial.create(config).run()` (async, wrapped in `asyncio.run`), extracts trajectory + verifier output from the trial dir, dispatches reward fns, returns `RolloutResult`.

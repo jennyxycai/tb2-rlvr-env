@@ -4,3 +4,4 @@ tb2_rlvr_env.egg-info/
 .env
 .ruff_cache/
 .pytest_cache/
+trials/
