@@ -8,10 +8,14 @@ import csv
 import io
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
+import pyarrow.parquet as pq
 import requests
+from huggingface_hub import hf_hub_download, list_repo_files
 
 log = logging.getLogger(__name__)
 
@@ -35,10 +39,28 @@ class ResolvedTaskPool:
     name: str  # 'rl' | 'sft_warmup' | 'eval'
     tasks: list[TaskRef]
 
-    def snapshot_to(self, path: str) -> None: ...
+    def snapshot_to(self, path: str) -> None:
+        """Write this pool to a JSON file. Caller checks the file in as a run
+        artifact so the exact (task_id, source, revision) set is recoverable later
+        even if env_config.yaml or upstream datasets change."""
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "name": self.name,
+            "task_count": len(self.tasks),
+            "snapshot_created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "tasks": [asdict(t) for t in self.tasks],
+        }
+        p.write_text(json.dumps(payload, indent=2))
 
     @classmethod
-    def from_snapshot(cls, path: str) -> ResolvedTaskPool: ...
+    def from_snapshot(cls, path: str) -> ResolvedTaskPool:
+        """Load a pool previously written by `snapshot_to`."""
+        data = json.loads(Path(path).read_text())
+        return cls(
+            name=data["name"],
+            tasks=[TaskRef(**t) for t in data["tasks"]],
+        )
 
 
 class DatasetSource(Protocol):
@@ -128,45 +150,177 @@ class GitHubCSVSource:
 
 
 class HuggingFaceSource:
-    """Loads a pinned HF dataset revision via `datasets.load_dataset`.
-    Applies optional row-level filters before returning TaskRefs."""
+    """Loads task IDs from a HuggingFace dataset at a pinned revision.
+
+    Supports two backend modes:
+      - `mode="parquet"` (default): downloads a single parquet file at the
+        pinned revision and extracts task IDs from a configured column
+        (`id_column`, default 'path'). Works for OpenThoughts-Agent-v1-RL.
+      - `mode="dir_tree"`: TODO(stage-3-ext) - lists top-level directories
+        in the repo and treats each containing `task.toml` as a task. Needed
+        for `zai-org/terminal-bench-2-verified` which ships one dir per task.
+    """
 
     def __init__(
         self,
         name: str,
         revision: str,
+        mode: str = "parquet",
+        id_column: str = "path",
+        parquet_file: str | None = None,
         filter: dict[str, Any] | None = None,
-    ) -> None: ...
+    ) -> None:
+        self.name = name
+        self.revision = revision
+        self.mode = mode
+        self.id_column = id_column
+        self.parquet_file = parquet_file
+        self.filter = filter or {}
+        self.source_name = name
 
-    def load(self) -> list[TaskRef]: ...
+    def load(self) -> list[TaskRef]:
+        if self.mode == "parquet":
+            return self._load_parquet()
+        if self.mode == "dir_tree":
+            raise NotImplementedError(
+                "HuggingFaceSource(mode='dir_tree') is not implemented yet. "
+                "TODO(stage-3-ext): list top-level dirs at the pinned revision and "
+                "filter those containing task.toml; used for tb2-verified."
+            )
+        raise ValueError(f"unknown HuggingFaceSource mode: {self.mode!r}")
 
-    def _apply_filter(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+    def _load_parquet(self) -> list[TaskRef]:
+        file = self.parquet_file
+        if file is None:
+            files = list_repo_files(
+                repo_id=self.name, repo_type="dataset", revision=self.revision
+            )
+            parquets = [f for f in files if f.endswith(".parquet")]
+            if len(parquets) != 1:
+                raise ValueError(
+                    f"expected exactly 1 parquet in {self.name}@{self.revision}, "
+                    f"found {len(parquets)}: {parquets}. Set `parquet_file` explicitly."
+                )
+            file = parquets[0]
+
+        local_path = hf_hub_download(
+            repo_id=self.name,
+            filename=file,
+            repo_type="dataset",
+            revision=self.revision,
+        )
+
+        # Only pull the columns we need (avoids reading task_binary blobs).
+        wanted = [self.id_column] + [c for c in self.filter if c != self.id_column]
+        wanted = [c for c in wanted if c in pq.read_schema(local_path).names]
+        table = pq.read_table(local_path, columns=wanted)
+        rows = self._apply_filter(table.to_pylist())
+
+        tasks: list[TaskRef] = []
+        for r in rows:
+            task_id = r.get(self.id_column)
+            if not task_id:
+                continue
+            tasks.append(
+                TaskRef(
+                    task_id=str(task_id),
+                    source_name=self.source_name,
+                    revision=self.revision,
+                    difficulty=(str(r["difficulty"]) if r.get("difficulty") else None),
+                    weights=None,  # HF datasets don't ship per-test weights
+                )
+            )
+        return tasks
+
+    def _apply_filter(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.filter:
+            return rows
+
+        def keep(row: dict[str, Any]) -> bool:
+            for col, allowed in self.filter.items():
+                allowed_set = (
+                    {allowed} if isinstance(allowed, (str, int, float)) else set(allowed)
+                )
+                if row.get(col) not in allowed_set:
+                    return False
+            return True
+
+        return [r for r in rows if keep(r)]
 
 
 class DatasetResolver:
     """Top-level orchestrator. Reads env_config dict, returns ResolvedTaskPools.
 
-    Safety:
-      - `task_ids_override` short-circuits all dataset loads and returns the override pool.
-      - If any source has revision == 'main' (or similar mutable ref) and
-        `allow_mutable_revisions` is False, raises before any network call.
-    Reproducibility:
-      - Caller is expected to immediately snapshot each ResolvedTaskPool to disk
-        and commit that snapshot as a run artifact.
+    Caller is expected to snapshot each ResolvedTaskPool to disk as a run artifact
+    (via ResolvedTaskPool.snapshot_to) for reproducibility.
     """
 
-    MUTABLE_REVS = {"main", "master", "HEAD", "latest"}
+    def __init__(self, env_config: dict[str, Any]) -> None:
+        self.env_config = env_config
 
-    def __init__(
-        self, env_config: dict[str, Any], allow_mutable_revisions: bool = False
-    ) -> None: ...
+    def resolve(self, pool_name: str) -> ResolvedTaskPool:
+        """Resolve one pool to a ResolvedTaskPool. `task_ids_override` (if set in
+        env_config) short-circuits the dataset load and applies to every pool name."""
+        override = self._override_pool(pool_name)
+        if override is not None:
+            return override
 
-    def resolve(self, pool_name: str) -> ResolvedTaskPool: ...
+        datasets = self.env_config.get("datasets") or {}
+        if pool_name not in datasets:
+            raise KeyError(
+                f"pool {pool_name!r} not declared in env_config['datasets']; "
+                f"available: {list(datasets.keys())}"
+            )
 
-    def resolve_all(self) -> dict[str, ResolvedTaskPool]: ...
+        tasks = [
+            t
+            for spec in datasets[pool_name]
+            for t in self._build_source(spec).load()
+        ]
+        return ResolvedTaskPool(name=pool_name, tasks=tasks)
 
-    def _build_source(self, spec: dict[str, Any]) -> DatasetSource: ...
+    def resolve_all(self) -> dict[str, ResolvedTaskPool]:
+        """Resolve every pool declared in env_config['datasets']."""
+        datasets = self.env_config.get("datasets") or {}
+        return {name: self.resolve(name) for name in datasets}
 
-    def _check_revision(self, revision: str) -> None: ...
+    def _build_source(self, spec: dict[str, Any]) -> DatasetSource:
+        kind = spec.get("source")
+        match kind:
+            case "github":
+                return GitHubCSVSource(
+                    repo=spec["repo"],
+                    path=spec["path"],
+                    revision=spec["revision"],
+                    filter=spec.get("filter"),
+                )
+            case "huggingface":
+                return HuggingFaceSource(
+                    name=spec["name"],
+                    revision=spec["revision"],
+                    mode=spec.get("mode", "parquet"),
+                    id_column=spec.get("id_column", "path"),
+                    parquet_file=spec.get("parquet_file"),
+                    filter=spec.get("filter"),
+                )
+            case _:
+                raise ValueError(f"unknown dataset source kind: {kind!r}")
 
-    def _override_pool(self, name: str) -> ResolvedTaskPool | None: ...
+    def _override_pool(self, name: str) -> ResolvedTaskPool | None:
+        """If `task_ids_override` is set in env_config, build a synthetic pool from
+        those IDs and return it. Applies to every pool name (overrides everything).
+        Returns None when no override is configured."""
+        override = self.env_config.get("task_ids_override")
+        if not override:
+            return None
+        tasks = [
+            TaskRef(
+                task_id=str(tid),
+                source_name="__override__",
+                revision="__override__",
+                difficulty=None,
+                weights=None,
+            )
+            for tid in override
+        ]
+        return ResolvedTaskPool(name=name, tasks=tasks)
