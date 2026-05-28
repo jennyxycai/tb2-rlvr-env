@@ -21,7 +21,7 @@ dependencies = [
     # Config + schemas
     "pyyaml>=6.0",
     "pydantic>=2.0",
-    "omegaconf>=2.3",      # mirrors gypsum-post-train's config pattern
+    "omegaconf>=2.3",
     "python-dotenv>=1.0",  # load .env files
 ]
 

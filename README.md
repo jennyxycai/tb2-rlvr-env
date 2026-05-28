@@ -46,7 +46,7 @@ Each rollout produces a reward in `[0, 1]`:
 - **0.85 × test verification**: pytest from the task's `tests/test.sh` runs against the agent's final container state after `complete()`. Per-test weights are applied if the task specifies them; otherwise uniform `1/N`.
 - **0.15 × LLM-as-judge**: Claude Sonnet 4 scores the trajectory on 4 dimensions (action output success, planning quality, phase adherence, tool effectiveness); the 4 are averaged.
 
-Combined via the `GroupRewards` pattern from `gypsum/src/tasks/rewards.py`: weighted sum, then group-demean across the 16 rollouts per prompt to produce the GRPO advantage.
+Combined via the `GroupRewards`: weighted sum, then group-demean across the 16 rollouts per prompt to produce the GRPO advantage.
 
 ## Notes on tb2 task filesystem
 

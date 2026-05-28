@@ -1,5 +1,4 @@
 # GroupRewards combine spec: weights + per-component transforms + group demean.
-# Mirrors gypsum/configs/experiment/tts-rl/subconfigs/rewards/0309_default.yaml.
 
 advantages:
   _class_: src.rewards.combine.GroupRewards
