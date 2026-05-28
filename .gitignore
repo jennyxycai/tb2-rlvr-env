@@ -2,3 +2,5 @@
 tb2_rlvr_env.egg-info/
 **/__pycache__/**
 .env
+.ruff_cache/
+.pytest_cache/

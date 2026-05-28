@@ -56,7 +56,7 @@ class LLMJudgeReward:
 
     def _format_trajectory(self, trajectory: list[dict[str, Any]]) -> str:
         """Render ATIF steps to readable text using `[Step N by Role]` delimiters
-        (parser-friendly, LLM-readable, mirrors terminal-bench-rl)."""
+        (parser-friendly, LLM-readable, similar to terminal-bench-rl but not in XML)."""
         if not trajectory:
             return "(empty trajectory)"
         out: list[str] = []

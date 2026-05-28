@@ -33,7 +33,7 @@ class JudgeBackend:
     def _parse(self, response: str) -> dict[str, float]:
         """Extract the 4 dimension scores from the model's response.
 
-        Strategy mirrors terminal-bench-rl's layered parser:
+        Similar to terminal-bench-rl's layered parser:
           1) strip markdown fences (```yaml / ```)
           2) yaml.safe_load
           3) regex fallback per-dimension

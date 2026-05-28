@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 
 class TestVerifierReward:
+    __test__ = False  # not a pytest collection target despite the Test* name
+
     """Weighted-test reward component.
 
     Pulls per-test results written by Harbor's verifier and applies the per-task

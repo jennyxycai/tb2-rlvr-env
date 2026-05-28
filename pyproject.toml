@@ -47,6 +47,11 @@ tb2-validate-judge = "src.rewards.judge_validation:JudgeValidationCLI.run"
 where = ["."]
 include = ["src*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: tests that make external API calls or take >1s; run with `pytest -m slow`",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
