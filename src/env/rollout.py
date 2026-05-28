@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from src.env.dataset_resolver import ResolvedTaskPool
+
 
 @dataclass
 class RolloutResult:
@@ -29,9 +31,13 @@ class HarborRolloutInterface:
 
     The trainer calls `rollout(task_id, policy)` to collect one trajectory; this class
     owns container lifecycle (via Harbor), the Terminus harness, and reward dispatch.
+    On __init__ it resolves the task pools declared in env_config.yaml; the trainer
+    pulls task IDs from `self.task_pools[<name>]`.
     """
 
     def __init__(self, env_config: dict[str, Any], reward_fns: dict[str, RewardFn]) -> None: ...
+
+    def task_pools(self) -> dict[str, ResolvedTaskPool]: ...
 
     def rollout(self, task_id: str, policy: Any) -> RolloutResult: ...
 

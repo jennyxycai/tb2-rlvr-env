@@ -1,8 +1,44 @@
-# Environment config: which tb2 tasks, which sandbox provider, base model, harness.
+# Environment config: task sources, sandbox provider, base model, harness, budgets.
 
-task_ids: []           # TODO: list of tb2 task IDs (or a filter spec)
-sandbox_provider: ~    # TODO: e.g. modal
-base_model: ~          # TODO: e.g. qwen3-coder-7b-instruct
+datasets:
+  # GRPO training pool (~1,050 tasks).
+  rl:
+    - source: github
+      repo: Danau5tin/terminal-bench-rl
+      path: dataset/latest_verified.csv
+      revision: main           # TODO: pin to a commit SHA before any real training run
+      filter:
+        difficulty: [easy, medium, hard, extremely_hard]
+    - source: huggingface
+      name: open-thoughts/OpenThoughts-Agent-v1-RL
+      revision: main           # TODO: pin to a revision hash
+
+  # ~15.2k traces; used pre-GRPO, not for rollouts.
+  sft_warmup:
+    - source: huggingface
+      name: open-thoughts/OpenThoughts-Agent-v1-SFT
+      revision: main
+
+  eval:
+    - source: huggingface
+      name: zai-org/terminal-bench-2-verified
+      revision: main
+
+# Use this if you want to override the datasets above and provide an explicit list of task IDs to use
+task_ids_override: null
+
+sandbox_provider: modal     # one of: modal, daytona, e2b, runloop, tensorlake
 harness: terminus
+
+base_model: qwen3-coder-7b-instruct
+
+# Per-rollout budgets (enforced by Terminus + sandbox provider).
 step_budget: 50
 wall_clock_sec: 900
+
+# Trajectory compaction
+compaction:
+  enabled: true
+  summarizer_model: qwen3-coder-7b-instruct   # same as base; cheaper than a separate judge
+  max_tokens: 100000                            # ~80% of Qwen3 7b instruct's 128k context window
+  keep_last_k: 5                               # last k turns are preserved
