@@ -27,8 +27,17 @@ datasets:
 # Use this if you want to override the datasets above and provide an explicit list of task IDs to use
 task_ids_override: null
 
-sandbox_provider: modal     # one of: modal, daytona, e2b, runloop, tensorlake
+sandbox_provider: docker    # one of: docker, modal, daytona, e2b, runloop, tensorlake, ...
 harness: terminus
+
+# Where Harbor pulls task definitions from at rollout time. Independent of
+# `datasets:` above (that block enumerates IDs; this block tells Harbor where to
+# fetch the actual Dockerfile / tests / task.toml for a given task_id).
+harbor_task_repo: https://github.com/harbor-framework/terminal-bench-2.git
+harbor_task_revision: null  # TODO: pin to a commit SHA before any real run
+
+# Where Trial outputs (logs, verifier results, agent traces) get written.
+trials_dir: trials
 
 base_model: qwen3-coder-7b-instruct
 

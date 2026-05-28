@@ -3,21 +3,32 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
-from src.env.dataset_resolver import ResolvedTaskPool
+import harbor
+
+from src.env.dataset_resolver import DatasetResolver, ResolvedTaskPool
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
 class RolloutResult:
-    """One completed rollout: trajectory + per-component rewards + termination cause."""
+    """One completed rollout: trajectory + per-component rewards + termination cause.
+
+    Shape is duck-compatible with the eval-case fixtures in
+    tests/judge_eval_cases/, so reward fns work on both live trials and fixtures.
+    """
 
     task_id: str
     trajectory: list[dict[str, Any]]
     rewards: dict[str, float]
     terminated_by: str
-    metadata: dict[str, Any]
+    task_instruction: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RewardFn(Protocol):
@@ -27,20 +38,117 @@ class RewardFn(Protocol):
 
 
 class HarborRolloutInterface:
-    """Adapter between a Harbor task runner and the RL trainer's rollout loop.
+    """Adapter between Harbor's Trial runner and the RL trainer's rollout loop.
 
-    The trainer calls `rollout(task_id, policy)` to collect one trajectory; this class
-    owns container lifecycle (via Harbor), the Terminus harness, and reward dispatch.
-    On __init__ it resolves the task pools declared in env_config.yaml; the trainer
-    pulls task IDs from `self.task_pools[<name>]`.
+    On __init__: stores env_config + reward_fns and creates a DatasetResolver.
+    On rollout(task_id, policy): builds a TrialConfig, runs Harbor's Trial,
+    extracts the trajectory and verifier output, dispatches reward_fns, and
+    returns a RolloutResult.
     """
 
-    def __init__(self, env_config: dict[str, Any], reward_fns: dict[str, RewardFn]) -> None: ...
+    def __init__(self, env_config: dict[str, Any], reward_fns: dict[str, RewardFn]) -> None:
+        self.env_config = env_config
+        self.reward_fns = reward_fns
+        self.resolver = DatasetResolver(env_config)
+        self._task_pools: dict[str, ResolvedTaskPool] | None = None
 
-    def task_pools(self) -> dict[str, ResolvedTaskPool]: ...
+        self.harness = env_config.get("harness", "terminus")
+        self.base_model = env_config.get("base_model", "claude-haiku-4-5")
+        self.trials_dir = Path(env_config.get("trials_dir", "trials"))
 
-    def rollout(self, task_id: str, policy: Any) -> RolloutResult: ...
+        # Where Harbor fetches task directories from.
+        self.harbor_task_repo: str = env_config["harbor_task_repo"]
+        self.harbor_task_revision: str | None = env_config.get("harbor_task_revision")
 
-    def reset(self, task_id: str) -> None: ...
+        sandbox = env_config.get("sandbox_provider", "docker")
+        self.environment_type = harbor.EnvironmentType[sandbox.upper()]
 
-    def close(self) -> None: ...
+    def task_pools(self) -> dict[str, ResolvedTaskPool]:
+        """Lazily resolve all pools declared in env_config['datasets']."""
+        if self._task_pools is None:
+            self._task_pools = self.resolver.resolve_all()
+        return self._task_pools
+
+    def rollout(self, task_id: str, policy: str | None = None) -> RolloutResult:
+        """Run one rollout: build TrialConfig -> harbor.Trial.run() -> dispatch
+        reward_fns -> RolloutResult."""
+        config = self._build_trial_config(task_id, policy)
+        result = harbor.Trial(config).run()
+
+        verifier_output = (
+            dict(result.verifier_result.rewards) if result.verifier_result else None
+        )
+        trajectory = self._extract_trajectory(result)
+        task_instruction = self._extract_task_instruction(result)
+        terminated_by = self._extract_termination(result)
+
+        partial = RolloutResult(
+            task_id=task_id,
+            trajectory=trajectory,
+            rewards={},
+            terminated_by=terminated_by,
+            task_instruction=task_instruction,
+            metadata={
+                "trial_id": str(result.id),
+                "trial_uri": result.trial_uri,
+                "verifier_output": verifier_output,
+                "exception": str(result.exception_info) if result.exception_info else None,
+            },
+        )
+
+        rewards: dict[str, float] = {}
+        for name, fn in self.reward_fns.items():
+            try:
+                rewards[name] = float(fn(partial))
+            except Exception as e:
+                log.warning("reward fn %r failed on task %s: %s", name, task_id, e)
+                rewards[name] = 0.0
+        partial.rewards = rewards
+        return partial
+
+    def reset(self, task_id: str) -> None:
+        """No-op: Harbor's Trial creates a fresh container per call so there's
+        no persistent state to reset between rollouts."""
+
+    def close(self) -> None:
+        """No-op: nothing persistent to release."""
+
+    def _build_trial_config(
+        self, task_id: str, policy: str | None
+    ) -> harbor.TrialConfig:
+        return harbor.TrialConfig(
+            task=harbor.TrialTaskConfig(
+                git_url=self.harbor_task_repo,
+                git_commit_id=self.harbor_task_revision,
+                # `path` is the subdirectory inside the git repo holding the
+                # task's task.toml + environment/ + tests/ (not the agent's
+                # working dir). Harbor's TaskConfig disallows both `path` and
+                # `name`; `name` is for org/name-style package tasks.
+                path=Path(task_id),
+            ),
+            agent=harbor.TrialAgentConfig(
+                name=self.harness,
+                model_name=policy or self.base_model,
+            ),
+            environment=harbor.TrialEnvironmentConfig(type=self.environment_type),
+            trials_dir=self.trials_dir,
+        )
+
+    def _extract_trajectory(self, result: harbor.TrialResult) -> list[dict[str, Any]]:
+        """TODO(stage-4-ext): convert Harbor's RolloutDetail (token-level) into
+        ATIF message-level steps the judge rubric expects. For now return an empty
+        list so reward fns that need trajectory (LLMJudgeReward) render '(empty
+        trajectory)' rather than crash. TestVerifierReward doesn't need this."""
+        return []
+
+    def _extract_task_instruction(self, result: harbor.TrialResult) -> str:
+        """TODO(stage-4-ext): pull from result or read /task/instruction.md."""
+        return ""
+
+    def _extract_termination(self, result: harbor.TrialResult) -> str:
+        """Best-effort termination cause string."""
+        if result.exception_info:
+            return "exception"
+        if result.verifier_result is None:
+            return "no_verifier_result"
+        return "complete"
