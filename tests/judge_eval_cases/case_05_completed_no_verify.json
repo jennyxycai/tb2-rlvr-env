@@ -1,7 +1,7 @@
 {
   "name": "completed_no_verify",
-  "description": "Explores, plans, edits correctly, but skips verification and calls complete() immediately after the edit. Triggers phase_adherence penalty for missing the verification phase. Other dimensions should be solid.",
-  "expected_range": [0.40, 0.60],
+  "description": "Explores, plans, edits correctly, but skips verification and calls complete() immediately after the edit. Triggers phase_adherence penalty for missing the verification phase. Other dimensions stay solid, so the averaged score lands in the 0.6-0.8 band.",
+  "expected_range": [0.60, 0.85],
   "task_instruction": "There is a bug in /workspace/src/calc.py. The function multiply(a, b) currently returns a + b but should return a * b. Fix the bug and verify with your own tests before completing.",
   "trajectory": [
     {
