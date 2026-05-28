@@ -1,3 +1,4 @@
 .venv/
 tb2_rlvr_env.egg-info/
 **/__pycache__/**
+.env

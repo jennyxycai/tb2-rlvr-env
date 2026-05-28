@@ -12,8 +12,8 @@ dependencies = [
     "harbor @ git+https://github.com/laude-institute/harbor.git",
 
     # LLM-as-judge
-    "anthropic>=0.40",     # Claude SDK for the judge
-    "tenacity>=8.0",       # retry-with-backoff for judge calls
+    "litellm>=1.50",       # model-agnostic LLM client (Claude + Gemini in one interface)
+    "anthropic>=0.40",     # direct Claude SDK (kept for code paths that need raw access)
 
     # Phase 0 validation
     "scipy>=1.10",         # spearmanr
@@ -30,6 +30,7 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-mock>=3.10",   # mocking Harbor in unit tests
+    "ruff>=0.6",           # lint + format (replaces black)
 ]
 
 # Constrained-decoding route (vLLM grammar mode for valid JSON tool calls)
@@ -39,8 +40,27 @@ inference = [
 ]
 
 [project.scripts]
+# TODO(stage-5): JudgeValidationCLI.run is still `...`; this entry is wired but inert.
 tb2-validate-judge = "src.rewards.judge_validation:JudgeValidationCLI.run"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, undefined names, ...)
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "C4",  # comprehensions
+]
+ignore = [
+    "E501",  # line-too-long is handled by the formatter
+]
